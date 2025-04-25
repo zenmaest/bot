@@ -3,8 +3,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
 
 # Настройки Telegram
-TELEGRAM_TOKEN = ''
-ADMIN_GROUP_ID = ''
+from data import TELEGRAM_TOKEN, ADMIN_GROUP_ID
 
 # Словарь для хранения контекста диалогов
 user_topics = {}  # user_id -> topic_id

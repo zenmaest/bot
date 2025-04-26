@@ -1,3 +1,5 @@
+import json
+import os
 import telegram
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, CallbackContext
@@ -5,16 +7,50 @@ from telegram.ext import Application, MessageHandler, filters, CallbackContext
 # Настройки Telegram
 from data import TELEGRAM_TOKEN, ADMIN_GROUP_ID
 
+# Путь к файлу для хранения данных о топиках
+DATA_FILE = 'user_topics.json'
+
+# Загрузка данных из файла
+def load_user_topics():
+    """
+    Загружает данные о топиках из файла.
+    """
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as file:
+            return json.load(file)
+    return {}
+
+# Сохранение данных в файл
+def save_user_topics(user_topics):
+    """
+    Сохраняет данные о топиках в файл.
+    """
+    with open(DATA_FILE, 'w', encoding='utf-8') as file:
+        json.dump(user_topics, file, ensure_ascii=False, indent=4)
+
 # Словарь для хранения контекста диалогов
-user_topics = {}  # user_id -> topic_id
+user_topics = load_user_topics()
 
 async def create_topic(bot: telegram.Bot, username: str):
     """
     Создаёт новый топик в группе администраторов.
     """
-    topic_name = f"Диалог с {username}"
-    response = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=topic_name)
+    response = await bot.create_forum_topic(chat_id=ADMIN_GROUP_ID, name=username)
     return response.message_thread_id
+
+async def find_or_create_topic(bot: telegram.Bot, username: str, user_id: int):
+    """
+    Ищет топик по имени пользователя или создаёт новый, если его нет.
+    """
+    # Проверяем, есть ли топик в словаре
+    if str(user_id) in user_topics:
+        return user_topics[str(user_id)]
+
+    # Если топик не найден, создаём новый
+    topic_id = await create_topic(bot, username)
+    user_topics[str(user_id)] = topic_id
+    save_user_topics(user_topics)  # Сохраняем обновлённые данные
+    return topic_id
 
 async def forward_to_admin(update: Update, context: CallbackContext):
     """
@@ -31,18 +67,16 @@ async def forward_to_admin(update: Update, context: CallbackContext):
     username = message.from_user.username or message.from_user.first_name
     text = message.text
 
-    # Если топик ещё не создан, создаём его
-    if user_id not in user_topics:
-        topic_id = await create_topic(context.bot, username)
-        user_topics[user_id] = topic_id
+    # Если топик ещё не создан, находим или создаём его
+    if str(user_id) not in user_topics:
+        topic_id = await find_or_create_topic(context.bot, username, user_id)
     else:
-        topic_id = user_topics[user_id]
+        topic_id = user_topics[str(user_id)]
 
     # Отправляем сообщение в топик
-    admin_message = f"[{username}]: {text}"
     await context.bot.send_message(
         chat_id=ADMIN_GROUP_ID,
-        text=admin_message,
+        text=text,
         message_thread_id=topic_id
     )
 
@@ -57,31 +91,22 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
     if not reply_to_message:
         return
 
-    # Парсим информацию о пользователе из текста сообщения
-    original_message_text = reply_to_message.text
-    if not original_message_text.startswith("[") or "]" not in original_message_text:
-        return  # Некорректный формат сообщения
-
-    username = original_message_text.split("[")[1].split("]")[0]
+    # Определяем пользователя по message_thread_id
+    topic_id = reply_to_message.message_thread_id
     user_id = None
 
-    # Находим ID пользователя по имени
-    for uid, topic_id in user_topics.items():
-        try:
-            member = await context.bot.get_chat_member(chat_id=ADMIN_GROUP_ID, user_id=uid)
-            if member.user.username == username:
-                user_id = uid
-                break
-        except Exception as e:
-            print(f"Ошибка при получении участника: {e}")
+    for uid, tid in user_topics.items():
+        if int(tid) == topic_id:
+            user_id = int(uid)
+            break
 
     if not user_id:
-        print(f"Пользователь с именем {username} не найден.")
+        print("Пользователь не найден.")
         return
 
     # Пересылаем ответ администратора пользователю
     reply_text = message.text
-    await context.bot.send_message(chat_id=user_id, text=f"Ответ администратора: {reply_text}")
+    await context.bot.send_message(chat_id=user_id, text=reply_text)
 
 def main():
     # Создаем и настраиваем бота

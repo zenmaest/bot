@@ -65,7 +65,6 @@ async def forward_to_admin(update: Update, context: CallbackContext):
 
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
-    text = message.text
 
     # Если топик ещё не создан, находим или создаём его
     if str(user_id) not in user_topics:
@@ -73,12 +72,53 @@ async def forward_to_admin(update: Update, context: CallbackContext):
     else:
         topic_id = user_topics[str(user_id)]
 
-    # Отправляем сообщение в топик
-    await context.bot.send_message(
-        chat_id=ADMIN_GROUP_ID,
-        text=text,
-        message_thread_id=topic_id
-    )
+    # Обрабатываем различные типы сообщений
+    if message.text:
+        await context.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=message.text,
+            message_thread_id=topic_id
+        )
+    elif message.sticker:
+        await context.bot.send_sticker(
+            chat_id=ADMIN_GROUP_ID,
+            sticker=message.sticker.file_id,
+            message_thread_id=topic_id
+        )
+    elif message.photo:
+        await context.bot.send_photo(
+            chat_id=ADMIN_GROUP_ID,
+            photo=message.photo[-1].file_id,
+            caption=message.caption,
+            message_thread_id=topic_id
+        )
+    elif message.voice:
+        await context.bot.send_voice(
+            chat_id=ADMIN_GROUP_ID,
+            voice=message.voice.file_id,
+            caption=message.caption,
+            message_thread_id=topic_id
+        )
+    elif message.video:
+        await context.bot.send_video(
+            chat_id=ADMIN_GROUP_ID,
+            video=message.video.file_id,
+            caption=message.caption,
+            message_thread_id=topic_id
+        )
+    elif message.document:
+        await context.bot.send_document(
+            chat_id=ADMIN_GROUP_ID,
+            document=message.document.file_id,
+            caption=message.caption,
+            message_thread_id=topic_id
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text="Получено неподдерживаемое сообщение.",
+            message_thread_id=topic_id
+        )
 
 async def handle_admin_reply(update: Update, context: CallbackContext):
     """
@@ -105,18 +145,30 @@ async def handle_admin_reply(update: Update, context: CallbackContext):
         return
 
     # Пересылаем ответ администратора пользователю
-    reply_text = message.text
-    await context.bot.send_message(chat_id=user_id, text=reply_text)
+    if message.text:
+        await context.bot.send_message(chat_id=user_id, text=message.text)
+    elif message.sticker:
+        await context.bot.send_sticker(chat_id=user_id, sticker=message.sticker.file_id)
+    elif message.photo:
+        await context.bot.send_photo(chat_id=user_id, photo=message.photo[-1].file_id, caption=message.caption)
+    elif message.voice:
+        await context.bot.send_voice(chat_id=user_id, voice=message.voice.file_id, caption=message.caption)
+    elif message.video:
+        await context.bot.send_video(chat_id=user_id, video=message.video.file_id, caption=message.caption)
+    elif message.document:
+        await context.bot.send_document(chat_id=user_id, document=message.document.file_id, caption=message.caption)
+    else:
+        await context.bot.send_message(chat_id=user_id, text="Получено неподдерживаемое сообщение.")
 
 def main():
     # Создаем и настраиваем бота
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Обработчик личных сообщений от пользователей
-    application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, forward_to_admin))
+    # Обработчик всех типов сообщений от пользователей
+    application.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, forward_to_admin))
 
     # Обработчик ответов администраторов в топиках
-    application.add_handler(MessageHandler(filters.Chat(chat_id=ADMIN_GROUP_ID) & filters.REPLY & filters.TEXT, handle_admin_reply))
+    application.add_handler(MessageHandler(filters.Chat(chat_id=ADMIN_GROUP_ID) & filters.REPLY, handle_admin_reply))
 
     # Запуск бота
     application.run_polling()
